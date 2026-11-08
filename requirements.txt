@@ -1,3 +1,2 @@
 telethon
 playwright
-playwright install chromium
