@@ -1,13 +1,16 @@
-# استخدام صورة Playwright الرسمية التي تحتوي على المتصفح والمكتبات جاهزة
-FROM mcr.microsoft.com/playwright:v1.52.0-noble
+# استخدام صورة Playwright الرسمية والمخصصة للبايثون (تحتوي على بايثون، pip، والمتصفح جاهزين)
+FROM mcr.microsoft.com/playwright/python:v1.52.0-noble
 
+# تعيين مجلد العمل داخل الحاوية
 WORKDIR /app
 
-# نسخ ملف المتطلبات وتثبيتها
+# نسخ ملف المتطلبات أولاً لتثبيت المكتبات
 COPY requirements.txt .
-RUN pip install -r requirements.txt
 
-# نسخ باقي ملفات البوت
+# تثبيت مكتبات البايثون
+RUN pip install --no-cache-dir -r requirements.txt
+
+# نسخ باقي ملفات المشروع (مثل Gcp.py)
 COPY . .
 
 # أمر تشغيل البوت
