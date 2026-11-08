@@ -11,16 +11,14 @@ import base64
 import json
 import tempfile
 import shutil
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ===============================
 # إعدادات البوت (املأ بياناتك)
 # ===============================
-API_ID = 32797376 # ضع ID الخاص بك
+API_ID = 32797376 
 API_HASH = '6b4092c760e9d732cbcf3b94ef758d46'
 BOT_TOKEN = '7079271941:AAGxPTSqTHRkheuKAgFjuV1gAQ2c15_8ZWU'
-ADMIN_ID = 5063427199 # ضع ID حسابك في تلغرام (رقم)
+ADMIN_ID = 5063427199 
 
 client = TelegramClient('AM2_D3', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
@@ -354,7 +352,7 @@ async def process_sso_link(chat_id, sso_url):
         
         async with async_playwright() as p:
             try:
-                # تم إضافة أوامر لتقليل استهلاك الذاكرة لتعمل على Railway
+                # أوامر لتقليل استهلاك الذاكرة لتعمل على Railway
                 context = await p.chromium.launch_persistent_context(
                     user_data_dir=temp_dir,
                     headless=True, 
@@ -447,17 +445,8 @@ async def handler(event):
     asyncio.create_task(process_sso_link(event.chat_id, sso_url))
 
 # ==========================================
-# خادم وهمي (Dummy Web Server) لمنع Railway من إيقاف البوت
+# التشغيل الرئيسي
 # ==========================================
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), BaseHTTPRequestHandler)
-    print(f"Dummy server running on port {port} to keep Railway awake.")
-    server.serve_forever()
-
 if __name__ == "__main__":
-    # تشغيل الخادم الوهمي في الخلفية
-    threading.Thread(target=run_dummy_server, daemon=True).start()
-    
     print("𝙘𝙤𝙣𝙣𝙚𝙘𝙩𝙚𝙙...")
     client.run_until_disconnected()
