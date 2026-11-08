@@ -11,6 +11,8 @@ import base64
 import json
 import tempfile
 import shutil
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ===============================
 # إعدادات البوت (املأ بياناتك)
@@ -18,7 +20,7 @@ import shutil
 API_ID = 32797376 # ضع ID الخاص بك
 API_HASH = '6b4092c760e9d732cbcf3b94ef758d46'
 BOT_TOKEN = '7079271941:AAGxPTSqTHRkheuKAgFjuV1gAQ2c15_8ZWU'
-ADMIN_ID = 5063427199# ضع ID حسابك في تلغرام (رقم)
+ADMIN_ID = 5063427199 # ضع ID حسابك في تلغرام (رقم)
 
 client = TelegramClient('AM2_D3', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
@@ -250,7 +252,7 @@ def extract_project_id(url):
     return None
 
 # ==========================================
-# خطوات المتصفح (تم تحسينها لتجنب الانتظار العشوائي)
+# خطوات المتصفح
 # ==========================================
 async def step1_welcome_screen(page):
     await page.wait_for_load_state("networkidle")
@@ -288,7 +290,6 @@ async def step3_enable_api(page, project_id, authuser):
         await expect(enable_btn.or_(manage_btn)).to_be_visible(timeout=20000)
         if await enable_btn.is_visible():
             await enable_btn.click()
-            # انتظار ظهور زر الإدارة بعد التفعيل
             await expect(manage_btn).to_be_visible(timeout=60000)
     except Exception as e:
          raise Exception(f"عطل في إيجاد زر تفعيل الـ API: {str(e)}")
@@ -298,7 +299,6 @@ async def step4_create_cloud_run(page, project_id, authuser):
     await page.goto(run_url, wait_until="domcontentloaded")
     
     try:
-        # انتظار ظهور حقل الإدخال وليس مجرد الانتظار لثواني
         label = page.get_by_text("Container Image URL").first
         await label.wait_for(state="visible", timeout=15000)
         await label.click()
@@ -325,7 +325,6 @@ async def step4_create_cloud_run(page, project_id, authuser):
 
 async def step5_get_deployed_url(page):
     link_locator = page.locator('a[href*="run.app"]')
-    # انتظار حتى 3 دقائق لأن سيرفرات جوجل قد تتأخر في النشر
     await link_locator.wait_for(state="visible", timeout=180000) 
     return await link_locator.get_attribute("href")
 
@@ -333,12 +332,10 @@ async def step5_get_deployed_url(page):
 # دالة المعالجة الأساسية
 # ==========================================
 async def process_sso_link(chat_id, sso_url):
-    # 1. التحقق من أن المستخدم هو الأدمن فقط
     if chat_id != ADMIN_ID:
         await client.send_message(chat_id, "🚫 **هذا البوت خاص بالمطور فقط.**")
         return
 
-    # 2. التحقق من التزامن (هل هناك متصفح يعمل بالفعل؟)
     if browser_lock.locked():
         await client.send_message(chat_id, "⚠️ **البوت مشغول حالياً بعملية أخرى، يرجى الانتظار حتى تنتهي.**")
         return
@@ -348,7 +345,6 @@ async def process_sso_link(chat_id, sso_url):
         await client.send_message(chat_id, "❌ لم يتم العثور على Project ID في الرابط.")
         return
 
-    # 3. قفل البوت طوال فترة العمل
     async with browser_lock:
         await client.send_message(chat_id, "⏳ 𝙡𝙚𝙩 𝙢𝙚 𝙨𝙚𝙚 𝙬𝙝𝙖𝙩 𝙄 𝙘𝙖𝙣 𝙙𝙤...")
 
@@ -358,16 +354,22 @@ async def process_sso_link(chat_id, sso_url):
         
         async with async_playwright() as p:
             try:
+                # تم إضافة أوامر لتقليل استهلاك الذاكرة لتعمل على Railway
                 context = await p.chromium.launch_persistent_context(
                     user_data_dir=temp_dir,
-                    headless=True, # تم التعديل ليعمل على السيرفر
+                    headless=True, 
                     args=[
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
                         '--disable-blink-features=AutomationControlled',
                         '--disable-infobars',
-                        '--window-size=1920,1080'
+                        '--window-size=1920,1080',
+                        '--single-process',
+                        '--no-zygote',
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-dev-tools'
                     ],
                     viewport={'width': 1920, 'height': 1080},
                     locale='en-US'
@@ -442,8 +444,20 @@ async def start(event):
 @client.on(events.NewMessage(pattern=r'https://www\.skills\.google/google_sso.*'))
 async def handler(event):
     sso_url = event.text
-    # تشغيل المهمة في الخلفية لتجنب إغلاق البوت
     asyncio.create_task(process_sso_link(event.chat_id, sso_url))
 
-print("𝙘𝙤𝙣𝙣𝙚𝙘𝙩𝙚𝙙...")
-client.run_until_disconnected()
+# ==========================================
+# خادم وهمي (Dummy Web Server) لمنع Railway من إيقاف البوت
+# ==========================================
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), BaseHTTPRequestHandler)
+    print(f"Dummy server running on port {port} to keep Railway awake.")
+    server.serve_forever()
+
+if __name__ == "__main__":
+    # تشغيل الخادم الوهمي في الخلفية
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+    
+    print("𝙘𝙤𝙣𝙣𝙚𝙘𝙩𝙚𝙙...")
+    client.run_until_disconnected()
